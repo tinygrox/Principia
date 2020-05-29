@@ -3,19 +3,23 @@
 
 #include <optional>
 
+#include "base/not_null.hpp"
 #include "geometry/frame.hpp"
 #include "geometry/grassmann.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/r3_element.hpp"
 #include "geometry/rotation.hpp"
 #include "geometry/signature.hpp"
+#include "physics/rigid_motion.hpp"
 #include "quantities/named_quantities.hpp"
 #include "quantities/quantities.hpp"
+#include "serialization/physics.pb.h"
 
 namespace principia {
 namespace physics {
 namespace internal_euler_solver {
 
+using base::not_null;
 using geometry::AngularVelocity;
 using geometry::Bivector;
 using geometry::Frame;
@@ -37,7 +41,7 @@ using quantities::Time;
 // for corrections and adaptations.
 template<typename InertialFrame, typename PrincipalAxesFrame>
 class EulerSolver {
-  static_assert(InertialFrame::is_inertial);
+  static_assert(!InertialFrame::may_rotate);
 
  public:
   using AttitudeRotation = Rotation<PrincipalAxesFrame, InertialFrame>;
@@ -51,6 +55,8 @@ class EulerSolver {
       Bivector<AngularMomentum, InertialFrame> const& initial_angular_momentum,
       AttitudeRotation const& initial_attitude,
       Instant const& initial_time);
+
+  R3Element<MomentOfInertia> const& moments_of_inertia() const;
 
   // Computes the angular momentum at the given time in the principal axes.
   // This is mostly useful as input to the following two functions.
@@ -67,6 +73,19 @@ class EulerSolver {
       Bivector<AngularMomentum, PrincipalAxesFrame> const& angular_momentum,
       Instant const& time) const;
 
+  // Equivalent to this->AttitudeAt(this->AngularMomentumAt(time), time), where
+  // the angular momentum is not needed.
+  AttitudeRotation AttitudeAt(Instant const& time) const;
+
+  // The motion of the body at the given time.  The centre of gravity of the
+  // body moves according to |linear_motion|.
+  RigidMotion<PrincipalAxesFrame, InertialFrame> MotionAt(
+      Instant const& time,
+      DegreesOfFreedom<InertialFrame> const& linear_motion) const;
+
+  void WriteToMessage(not_null<serialization::EulerSolver*> message) const;
+  static EulerSolver ReadFromMessage(serialization::EulerSolver const& message);
+
  private:
   using ℬₜ = Frame<enum class ℬₜTag>;
   using ℬʹ = Frame<enum class ℬʹTag>;
@@ -81,8 +100,7 @@ class EulerSolver {
       Bivector<AngularMomentum, PreferredPrincipalAxesFrame>;
 
   // The formula to use, following [CFSZ07], Section 2.2.  They don't have a
-  // formula for the spherical case.  Also note our singular case for case (iii)
-  // which arises when the coordinate along which we don't project is 0.
+  // formula for the spherical case.
   enum class Formula {
     i,
     ii,
@@ -104,6 +122,9 @@ class EulerSolver {
 
   // Construction parameters.
   R3Element<MomentOfInertia> const moments_of_inertia_;
+  Bivector<AngularMomentum, InertialFrame> const
+      serialized_initial_angular_momentum_;
+  AttitudeRotation const initial_attitude_;
   Instant const initial_time_;
   AngularMomentum const G_;
   PreferredAngularMomentumBivector initial_angular_momentum_;
@@ -120,24 +141,24 @@ class EulerSolver {
   // Only the parameters needed for the selected formula are non-NaN after
   // construction.
 
-  AngularFrequency λ_ = NaN<AngularFrequency>();
+  AngularFrequency λ_ = NaN<AngularFrequency>;
 
-  AngularMomentum B₂₃_ = NaN<AngularMomentum>();
-  AngularMomentum B₁₃_ = NaN<AngularMomentum>();
-  AngularMomentum B₃₁_ = NaN<AngularMomentum>();
-  AngularMomentum B₂₁_ = NaN<AngularMomentum>();
+  AngularMomentum B₂₃_ = NaN<AngularMomentum>;
+  AngularMomentum B₁₃_ = NaN<AngularMomentum>;
+  AngularMomentum B₃₁_ = NaN<AngularMomentum>;
+  AngularMomentum B₂₁_ = NaN<AngularMomentum>;
 
-  double n_ = NaN<double>();
-  double mc_ = NaN<double>();
-  Angle ν_ = NaN<Angle>();
-  Angle ψ_offset_ = NaN<Angle>();
-  double ψ_arctan_multiplier_ = NaN<double>();
-  MomentOfInertia ψ_cn_multiplier_ = NaN<MomentOfInertia>();
-  MomentOfInertia ψ_sn_multiplier_ = NaN<MomentOfInertia>();
-  AngularMomentum ψ_cosh_multiplier_ = NaN<AngularMomentum>();
-  AngularMomentum ψ_sinh_multiplier_ = NaN<AngularMomentum>();
-  double ψ_elliptic_pi_multiplier_ = NaN<double>();
-  AngularFrequency ψ_t_multiplier_ = NaN<AngularFrequency>();
+  double n_ = NaN<double>;
+  double mc_ = NaN<double>;
+  Angle ν_ = NaN<Angle>;
+  Angle ψ_offset_ = NaN<Angle>;
+  double ψ_arctan_multiplier_ = NaN<double>;
+  MomentOfInertia ψ_cn_multiplier_ = NaN<MomentOfInertia>;
+  MomentOfInertia ψ_sn_multiplier_ = NaN<MomentOfInertia>;
+  AngularMomentum ψ_cosh_multiplier_ = NaN<AngularMomentum>;
+  AngularMomentum ψ_sinh_multiplier_ = NaN<AngularMomentum>;
+  double ψ_elliptic_pi_multiplier_ = NaN<double>;
+  AngularFrequency ψ_t_multiplier_ = NaN<AngularFrequency>;
 };
 
 }  // namespace internal_euler_solver

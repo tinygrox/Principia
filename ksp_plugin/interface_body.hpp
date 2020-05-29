@@ -5,17 +5,21 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <utility>
 
+#include "base/array.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/orthogonal_map.hpp"
 #include "geometry/rotation.hpp"
 #include "physics/ephemeris.hpp"
 #include "physics/rigid_motion.hpp"
+#include "quantities/si.hpp"
 
 namespace principia {
 namespace interface {
 
+using base::UniqueArray;
 using geometry::OrthogonalMap;
 using geometry::RigidTransformation;
 using geometry::Rotation;
@@ -24,11 +28,11 @@ using ksp_plugin::RigidPart;
 using physics::Ephemeris;
 using physics::RigidMotion;
 using quantities::Pow;
-using quantities::SIUnit;
 using quantities::si::Degree;
 using quantities::si::Metre;
 using quantities::si::Radian;
 using quantities::si::Second;
+namespace si = quantities::si;
 
 // No partial specialization of functions, so we wrap everything into structs.
 // C++, I hate you.
@@ -110,14 +114,14 @@ struct XYZConverter<AngularVelocity<Frame>> {
 template<>
 struct XYZConverter<R3Element<MomentOfInertia>> {
   static R3Element<MomentOfInertia> FromXYZ(XYZ const& xyz) {
-    return R3Element<MomentOfInertia>(xyz.x * SIUnit<MomentOfInertia>(),
-                                      xyz.y * SIUnit<MomentOfInertia>(),
-                                      xyz.z * SIUnit<MomentOfInertia>());
+    return R3Element<MomentOfInertia>(xyz.x * si::Unit<MomentOfInertia>,
+                                      xyz.y * si::Unit<MomentOfInertia>,
+                                      xyz.z * si::Unit<MomentOfInertia>);
   }
   static XYZ ToXYZ(R3Element<MomentOfInertia> const& moments_of_inertia) {
-    return {moments_of_inertia.x / SIUnit<MomentOfInertia>(),
-            moments_of_inertia.y / SIUnit<MomentOfInertia>(),
-            moments_of_inertia.z / SIUnit<MomentOfInertia>()};
+    return {moments_of_inertia.x / si::Unit<MomentOfInertia>,
+            moments_of_inertia.y / si::Unit<MomentOfInertia>,
+            moments_of_inertia.z / si::Unit<MomentOfInertia>};
   }
 };
 
@@ -214,7 +218,7 @@ inline bool operator==(OrbitAnalysis const& left, OrbitAnalysis const& right) {
          left.ground_track == right.ground_track &&
          left.mission_duration == right.mission_duration &&
          left.primary_index == right.primary_index &&
-         left.progress_of_next_analysis && right.progress_of_next_analysis &&
+         left.progress_of_next_analysis == right.progress_of_next_analysis &&
          left.recurrence == right.recurrence;
 }
 
@@ -257,6 +261,10 @@ inline bool operator==(OrbitalElements const& left,
 
 inline bool operator==(QP const& left, QP const& right) {
   return left.q == right.q && left.p == right.p;
+}
+
+inline bool operator==(QPRW const& left, QPRW const& right) {
+  return left.qp == right.qp && left.r == right.r && left.w == right.w;
 }
 
 inline bool operator==(Status const& left, Status const& right) {
@@ -444,11 +452,25 @@ inline QP ToQP(RelativeDegreesOfFreedom<AliceSun> const& relative_dof) {
   return QPConverter<RelativeDegreesOfFreedom<AliceSun>>::ToQP(relative_dof);
 }
 
-inline Status ToStatus(base::Status const& status) {
-  if (!status.ok()) {
-    LOG(ERROR) << status.message();
+inline Status* ToNewStatus(base::Status const& status) {
+  if (status.ok()) {
+    return new Status{static_cast<int>(status.error()),
+                      /*message=*/nullptr};
+  } else {
+    std::string const& message = status.message();
+    LOG(ERROR) << message;
+    UniqueArray<char> allocated_message(message.size() + 1);
+    std::memcpy(allocated_message.data.get(),
+                message.c_str(),
+                message.size() + 1);
+    return new Status{static_cast<int>(status.error()),
+                      allocated_message.data.release()};
   }
-  return {static_cast<int>(status.error())};
+}
+
+inline Status* ToNewStatus(base::Error const error,
+                           std::string const& message) {
+  return ToNewStatus(base::Status(error, message));
 }
 
 inline WXYZ ToWXYZ(geometry::Quaternion const& quaternion) {
@@ -484,8 +506,8 @@ inline XYZ ToXYZ(Velocity<World> const& velocity) {
 
 template<typename T>
 Interval ToInterval(geometry::Interval<T> const& interval) {
-  return {interval.min / quantities::SIUnit<T>(),
-          interval.max / quantities::SIUnit<T>()};
+  return {interval.min / quantities::si::Unit<T>,
+          interval.max / quantities::si::Unit<T>};
 }
 
 inline Instant FromGameTime(Plugin const& plugin,
@@ -538,6 +560,18 @@ inline RigidMotion<RigidPart, World> MakePartRigidMotion(
       FromXYZ<AngularVelocity<World>>(part_angular_velocity),
       part_degrees_of_freedom.velocity());
   return part_rigid_motion;
+}
+
+// Same as |MakePartRigidMotion|, but uses the separate type |ApparentWorld| to
+// avoid mixing uncorrected and corrected data.
+inline RigidMotion<RigidPart, ApparentWorld> MakePartApparentRigidMotion(
+    QP const& part_world_degrees_of_freedom,
+    WXYZ const& part_rotation,
+    XYZ const& part_angular_velocity) {
+  return RigidMotion<World, ApparentWorld>::Identity() *
+         MakePartRigidMotion(part_world_degrees_of_freedom,
+                             part_rotation,
+                             part_angular_velocity);
 }
 
 }  // namespace interface

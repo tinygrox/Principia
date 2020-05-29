@@ -16,9 +16,12 @@ namespace internal_frame {
 using base::not_constructible;
 using base::not_null;
 
+// The enumerators of |FrameMotion| are ordered from most restrictive to least
+// restrictive; m1 <= m2 means that m1 satisfies the requirements of m2.
 enum FrameMotion {
   Inertial,
-  NonInertial,
+  NonRotating,
+  Arbitrary,
 };
 
 enum class Handedness {
@@ -43,11 +46,12 @@ enum class Handedness {
 // that should be sufficient to detect at compile-time attempts at serializing a
 // non-serializable frame.
 template<typename FrameTag,
-         FrameMotion motion_ = NonInertial,
+         FrameMotion motion_ = Arbitrary,
          Handedness handedness_ = Handedness::Right,
          FrameTag tag_ = FrameTag{}>
 struct Frame : not_constructible {
   static constexpr bool is_inertial = motion_ == Inertial;
+  static constexpr bool may_rotate = motion_ == Arbitrary;
   static constexpr FrameMotion motion = motion_;
   static constexpr Handedness handedness = handedness_;
 
@@ -75,10 +79,11 @@ void ReadFrameFromMessage(
 
 }  // namespace internal_frame
 
+using internal_frame::Arbitrary;
 using internal_frame::Frame;
 using internal_frame::Handedness;
 using internal_frame::Inertial;
-using internal_frame::NonInertial;
+using internal_frame::NonRotating;
 using internal_frame::ReadFrameFromMessage;
 
 }  // namespace geometry

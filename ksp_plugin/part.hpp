@@ -43,6 +43,7 @@ using quantities::Torque;
 // Represents a KSP part.
 class Part final {
  public:
+  // A truthful part.
   Part(PartId part_id,
        std::string const& name,
        Mass const& mass,
@@ -50,11 +51,22 @@ class Part final {
        RigidMotion<RigidPart, Barycentric> const& rigid_motion,
        std::function<void()> deletion_callback);
 
+  // An untruthful part.
+  Part(PartId part_id,
+       std::string const& name,
+       DegreesOfFreedom<Barycentric> const& degrees_of_freedom,
+       std::function<void()> deletion_callback);
+
   // Calls the deletion callback passed at construction, if any.  This part must
   // not be piled up.
   ~Part();
 
   PartId part_id() const;
+
+  // When a part is not truthful, all its properties except for name and part_id
+  // are lies and should not be propagated to the game.
+  bool truthful() const;
+  void make_truthful();
 
   // Sets or returns the mass and inertia tensor.  Even though a part is
   // massless in the sense that it doesn't exert gravity, it has a mass and an
@@ -64,6 +76,10 @@ class Part final {
   Mass const& mass() const;
   void set_inertia_tensor(InertiaTensor<RigidPart> const& inertia_tensor);
   InertiaTensor<RigidPart> const& inertia_tensor() const;
+  // Whether this part is a solid rocket motor, whose lost mass is expelled with
+  // its angular momentum.
+  void set_is_solid_rocket_motor(bool is_solid_rocket_motor);
+  bool is_solid_rocket_motor() const;
 
   // The difference between successive values passed to |set_mass()|.
   Mass const& mass_change() const;
@@ -146,10 +162,24 @@ class Part final {
   std::string ShortDebugString() const;
 
  private:
+  Part(PartId part_id,
+       std::string name,
+       bool truthful,
+       Mass const& mass,
+       InertiaTensor<RigidPart> const& inertia_tensor,
+       RigidMotion<RigidPart, Barycentric> rigid_motion,
+       std::function<void()> deletion_callback);
+
   PartId const part_id_;
   std::string const name_;
+  bool truthful_;
   Mass mass_;
+  // NOTE(eggrobin): |mass_change_| and |is_solid_rocket_motor_| are set by
+  // |InsertOrKeepLoadedPart|, and used by |PileUp::RecomputeFromParts|.
+  // Ultimately, both are called in the adapter in |WaitedForFixedUpdate|.
+  // They therefore do not need to be serialized.
   Mass mass_change_;
+  bool is_solid_rocket_motor_ = false;
   InertiaTensor<RigidPart> inertia_tensor_;
   Vector<Force, Barycentric> intrinsic_force_;
   Bivector<Torque, Barycentric> intrinsic_torque_;

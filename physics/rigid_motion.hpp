@@ -40,7 +40,7 @@ template<typename FromFrame, typename ToFrame>
 class RigidMotion final {
  public:
   RigidMotion(
-      RigidTransformation<FromFrame, ToFrame> const& rigid_transformation,
+      RigidTransformation<FromFrame, ToFrame> rigid_transformation,
       AngularVelocity<FromFrame> const& angular_velocity_of_to_frame,
       Velocity<FromFrame> const& velocity_of_to_frame_origin);
 
@@ -63,9 +63,16 @@ class RigidMotion final {
 
   RigidMotion<ToFrame, FromFrame> Inverse() const;
 
+  // A rigid motion expressing that |FromFrame| and |ToFrame| have the same
+  // axes, origin, and instantaneous motion.
+  // This function is enabled only if both frames have the same handedness (this
+  // is a requirement of OrthogonalMap::Identity) and if the |motion| of
+  // FromFrame is a special case of that of |ToFrame| (see the comments on
+  // |FrameMotion|).
   template<typename F = FromFrame,
            typename T = ToFrame,
-           typename = std::enable_if_t<std::is_same_v<F, T>>>
+           typename = std::enable_if_t<(F::handedness == T::handedness &&
+                                        F::motion <= T::motion)>>
   static RigidMotion Identity();
 
   // A factory that construct a non-rotating motion using the given degrees of
@@ -103,7 +110,7 @@ template<typename FromFrame, typename ToFrame>
 class AcceleratedRigidMotion final {
  public:
   AcceleratedRigidMotion(
-      RigidMotion<FromFrame, ToFrame> const& rigid_motion,
+      RigidMotion<FromFrame, ToFrame> rigid_motion,
       Variation<AngularVelocity<FromFrame>> const&
           angular_acceleration_of_to_frame,
       Vector<Acceleration, FromFrame> const& acceleration_of_to_frame_origin);

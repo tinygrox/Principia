@@ -1,6 +1,7 @@
 ﻿
 #pragma once
 
+#include <string>
 #include <typeindex>
 #include <type_traits>
 #include <utility>
@@ -39,11 +40,12 @@ using geometry::AngularVelocity;
 using geometry::Displacement;
 using geometry::Instant;
 using geometry::Position;
-using geometry::R3Element;
 using geometry::Quaternion;
+using geometry::R3Element;
 using geometry::Vector;
 using geometry::Velocity;
 using ksp_plugin::AliceSun;
+using ksp_plugin::ApparentWorld;
 using ksp_plugin::Barycentric;
 using ksp_plugin::Camera;
 using ksp_plugin::Iterator;
@@ -98,6 +100,7 @@ bool operator==(OrbitGroundTrack const& left, OrbitGroundTrack const& right);
 bool operator==(OrbitRecurrence const& left, OrbitRecurrence const& right);
 bool operator==(OrbitalElements const& left, OrbitalElements const& right);
 bool operator==(QP const& left, QP const& right);
+bool operator==(QPRW const& left, QPRW const& right);
 bool operator==(WXYZ const& left, WXYZ const& right);
 bool operator==(XY const& left, XY const& right);
 bool operator==(XYZ const& left, XYZ const& right);
@@ -153,7 +156,9 @@ KeplerianElements ToKeplerianElements(
 QP ToQP(DegreesOfFreedom<World> const& dof);
 QP ToQP(RelativeDegreesOfFreedom<AliceSun> const& relative_dof);
 
-Status ToStatus(base::Status const& status);
+// Ownership of the status and its message is transferred to the caller.
+Status* ToNewStatus(base::Status const& status);
+Status* ToNewStatus(base::Error error, std::string const& message);
 
 WXYZ ToWXYZ(geometry::Quaternion const& quaternion);
 

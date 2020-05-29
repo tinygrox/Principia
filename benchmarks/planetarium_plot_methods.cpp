@@ -69,7 +69,7 @@ constexpr Length focal = 1 * Metre;
 Perspective<Navigation, Camera> PolarPerspective(
     Length const distance_from_earth) {
   using LeftNavigation =
-      Frame<enum class LeftNavigationTag, NonInertial, Handedness::Left>;
+      Frame<enum class LeftNavigationTag, Arbitrary, Handedness::Left>;
   return {
       RigidTransformation<Navigation, Camera>(
           Navigation::origin + Displacement<Navigation>(
@@ -90,7 +90,7 @@ Perspective<Navigation, Camera> PolarPerspective(
 Perspective<Navigation, Camera> EquatorialPerspective(
     Length const distance_from_earth) {
   using LeftNavigation =
-      Frame<enum class LeftNavigationTag, NonInertial, Handedness::Left>;
+      Frame<enum class LeftNavigationTag, Arbitrary, Handedness::Left>;
   return {
       RigidTransformation<Navigation, Camera>(
           Navigation::origin + Displacement<Navigation>(
@@ -213,10 +213,10 @@ void RunBenchmark(benchmark::State& state,
     total_lines += lines.size();
     ++iterations;
   }
-  Length min_x = Infinity<Length>();
-  Length min_y = Infinity<Length>();
-  Length max_x = -Infinity<Length>();
-  Length max_y = -Infinity<Length>();
+  Length min_x = Infinity<Length>;
+  Length min_y = Infinity<Length>;
+  Length max_x = -Infinity<Length>;
+  Length max_y = -Infinity<Length>;
   int points = 0;
   for (auto const& line : lines) {
     points += line.size();

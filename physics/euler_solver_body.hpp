@@ -20,6 +20,7 @@ using geometry::Commutator;
 using geometry::DeduceSignPreservingOrientation;
 using geometry::DefinesFrame;
 using geometry::Normalize;
+using geometry::OrthogonalMap;
 using geometry::Quaternion;
 using geometry::Sign;
 using geometry::Vector;
@@ -40,7 +41,6 @@ using quantities::Sinh;
 using quantities::Sqrt;
 using quantities::Square;
 using quantities::SquareRoot;
-using quantities::SIUnit;
 using quantities::Tanh;
 using quantities::Time;
 using quantities::Variation;
@@ -54,6 +54,8 @@ EulerSolver<InertialFrame, PrincipalAxesFrame>::EulerSolver(
     AttitudeRotation const& initial_attitude,
     Instant const& initial_time)
     : moments_of_inertia_(moments_of_inertia),
+      serialized_initial_angular_momentum_(initial_angular_momentum),
+      initial_attitude_(initial_attitude),
       initial_time_(initial_time),
       G_(initial_angular_momentum.Norm()),
       ℛ_(Rotation<ℬʹ, InertialFrame>::Identity()),
@@ -271,6 +273,12 @@ EulerSolver<InertialFrame, PrincipalAxesFrame>::EulerSolver(
 }
 
 template<typename InertialFrame, typename PrincipalAxesFrame>
+R3Element<MomentOfInertia> const&
+EulerSolver<InertialFrame, PrincipalAxesFrame>::moments_of_inertia() const {
+  return moments_of_inertia_;
+}
+
+template<typename InertialFrame, typename PrincipalAxesFrame>
 Bivector<AngularMomentum, PrincipalAxesFrame>
 EulerSolver<InertialFrame, PrincipalAxesFrame>::AngularMomentumAt(
     Instant const& time) const {
@@ -300,7 +308,7 @@ EulerSolver<InertialFrame, PrincipalAxesFrame>::AngularMomentumAt(
           {B₁₃_ * sech, G_ * Tanh(angle), B₃₁_ * sech});
       break;
     }
-    case Formula::Sphere : {
+    case Formula::Sphere: {
       m = initial_angular_momentum_;
       break;
     }
@@ -395,6 +403,56 @@ EulerSolver<InertialFrame, PrincipalAxesFrame>::AttitudeAt(
     default:
       LOG(FATAL) << "Unexpected region " << static_cast<int>(region_);
   }
+}
+
+template<typename InertialFrame, typename PrincipalAxesFrame>
+typename EulerSolver<InertialFrame, PrincipalAxesFrame>::AttitudeRotation
+EulerSolver<InertialFrame, PrincipalAxesFrame>::AttitudeAt(
+    Instant const& time) const {
+  return AttitudeAt(AngularMomentumAt(time), time);
+}
+
+template<typename InertialFrame, typename PrincipalAxesFrame>
+RigidMotion<PrincipalAxesFrame, InertialFrame>
+EulerSolver<InertialFrame, PrincipalAxesFrame>::MotionAt(
+    Instant const& time,
+    DegreesOfFreedom<InertialFrame> const& linear_motion) const {
+  Bivector<AngularMomentum, PrincipalAxesFrame> const angular_momentum =
+      AngularMomentumAt(time);
+  Rotation<PrincipalAxesFrame, InertialFrame> const attitude =
+      AttitudeAt(angular_momentum, time);
+  AngularVelocity<InertialFrame> const angular_velocity =
+      attitude(AngularVelocityFor(angular_momentum));
+
+  return RigidMotion<PrincipalAxesFrame, InertialFrame>(
+      RigidTransformation<PrincipalAxesFrame, InertialFrame>(
+          PrincipalAxesFrame::origin,
+          linear_motion.position(),
+          attitude.template Forget<OrthogonalMap>()),
+      angular_velocity,
+      linear_motion.velocity());
+}
+
+template<typename InertialFrame, typename PrincipalAxesFrame>
+void EulerSolver<InertialFrame, PrincipalAxesFrame>::WriteToMessage(
+    not_null<serialization::EulerSolver*> const message) const {
+  moments_of_inertia_.WriteToMessage(message->mutable_moments_of_inertia());
+  serialized_initial_angular_momentum_.WriteToMessage(
+      message->mutable_initial_angular_momentum());
+  initial_attitude_.WriteToMessage(message->mutable_initial_attitude());
+  initial_time_.WriteToMessage(message->mutable_initial_time());
+}
+
+template<typename InertialFrame, typename PrincipalAxesFrame>
+EulerSolver<InertialFrame, PrincipalAxesFrame>
+EulerSolver<InertialFrame, PrincipalAxesFrame>::ReadFromMessage(
+    serialization::EulerSolver const& message) {
+  return EulerSolver(
+      R3Element<MomentOfInertia>::ReadFromMessage(message.moments_of_inertia()),
+      Bivector<AngularMomentum, InertialFrame>::ReadFromMessage(
+          message.initial_angular_momentum()),
+      AttitudeRotation::ReadFromMessage(message.initial_attitude()),
+      Instant::ReadFromMessage(message.initial_time()));
 }
 
 template<typename InertialFrame, typename PrincipalAxesFrame>

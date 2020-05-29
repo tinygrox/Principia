@@ -85,7 +85,6 @@ using quantities::DebugString;
 using quantities::GravitationalParameter;
 using quantities::Length;
 using quantities::Sin;
-using quantities::SIUnit;
 using quantities::Sqrt;
 using quantities::astronomy::AstronomicalUnit;
 using quantities::si::Day;
@@ -455,12 +454,7 @@ TEST_F(PluginTest, Serialization) {
   EXPECT_TRUE(message.vessel(0).vessel().has_flight_plan());
   EXPECT_TRUE(message.vessel(0).vessel().has_history());
   auto const& vessel_0_history = message.vessel(0).vessel().history();
-  EXPECT_EQ(4, vessel_0_history.timeline_size());
-  Instant const t0 =
-      Instant() +
-      vessel_0_history.timeline(0).instant().scalar().magnitude() * Second;
-  EXPECT_THAT(t0,
-              AllOf(Gt(HistoryTime(time, 3) - step), Le(HistoryTime(time, 3))));
+  EXPECT_EQ(4, vessel_0_history.zfp().timeline_size());
   EXPECT_TRUE(message.has_renderer());
   EXPECT_TRUE(message.renderer().has_plotting_frame());
   EXPECT_TRUE(message.renderer().plotting_frame().HasExtension(

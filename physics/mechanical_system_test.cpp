@@ -14,6 +14,7 @@ using geometry::Displacement;
 using geometry::Frame;
 using geometry::Identity;
 using geometry::Inertial;
+using geometry::NonRotating;
 using geometry::OrthogonalMap;
 using geometry::R3x3Matrix;
 using geometry::SymmetricBilinearForm;
@@ -42,7 +43,7 @@ namespace physics {
 class MechanicalSystemTest : public testing::Test{
  protected:
   using InertialFrame = Frame<enum class InertialTag, Inertial>;
-  using SystemFrame = Frame<enum class SystemTag>;
+  using SystemFrame = Frame<enum class SystemTag, NonRotating>;
 
   MechanicalSystem<InertialFrame, SystemFrame> system_;
 };
@@ -95,7 +96,7 @@ TEST_F(MechanicalSystemTest, RigidTwoPointMasses) {
       system_.AngularMomentum(),
       Componentwise(AngularMomentum{}, AngularMomentum{}, r * μ * v * Radian));
   EXPECT_THAT(system_.InertiaTensor().coordinates(),
-              Eq(R3x3Matrix<MomentOfInertia>::Diagonal(
+              Eq(R3x3Matrix<MomentOfInertia>::DiagonalMatrix(
                   {{}, μ * Pow<2>(r), μ * Pow<2>(r)})));
 
   Mass const m = system_.mass();
@@ -121,7 +122,7 @@ TEST_F(MechanicalSystemTest, RigidTwoCubes) {
   constexpr Length cube_side = 3 * Metre;
   using Cube = Frame<enum class CubeTag>;
   SymmetricBilinearForm<MomentOfInertia, Cube, Bivector> const cube_inertia(
-      R3x3Matrix<MomentOfInertia>::Diagonal(
+      R3x3Matrix<MomentOfInertia>::DiagonalMatrix(
           {cube_mass * Pow<2>(cube_side) / 6,
            cube_mass * Pow<2>(cube_side) / 6,
            cube_mass * Pow<2>(cube_side) / 6}));
@@ -158,7 +159,7 @@ TEST_F(MechanicalSystemTest, RigidTwoCubes) {
   EXPECT_THAT(system_.mass(), Eq(2 * cube_mass));
   EXPECT_THAT(
       system_.InertiaTensor().coordinates(),
-      Eq(R3x3Matrix<MomentOfInertia>::Diagonal(
+      Eq(R3x3Matrix<MomentOfInertia>::DiagonalMatrix(
           {2 * cube_mass * (2 * Pow<2>(cube_side)) / 12,
            2 * cube_mass * (Pow<2>(2 * cube_side) + Pow<2>(cube_side)) / 12,
            2 * cube_mass * (Pow<2>(2 * cube_side) + Pow<2>(cube_side)) / 12})));
@@ -173,7 +174,7 @@ TEST_F(MechanicalSystemTest, NonRigidTwoCubes) {
   constexpr Length cube_side = 3 * Metre;
   using Cube = Frame<enum class CubeTag>;
   SymmetricBilinearForm<MomentOfInertia, Cube, Bivector> const cube_inertia(
-      R3x3Matrix<MomentOfInertia>::Diagonal(
+      R3x3Matrix<MomentOfInertia>::DiagonalMatrix(
           {cube_mass * Pow<2>(cube_side) / 6,
            cube_mass * Pow<2>(cube_side) / 6,
            cube_mass * Pow<2>(cube_side) / 6}));
@@ -206,7 +207,7 @@ TEST_F(MechanicalSystemTest, NonRigidTwoCubes) {
   EXPECT_THAT(system_.mass(), Eq(2 * cube_mass));
   EXPECT_THAT(
       system_.InertiaTensor().coordinates(),
-      Eq(R3x3Matrix<MomentOfInertia>::Diagonal(
+      Eq(R3x3Matrix<MomentOfInertia>::DiagonalMatrix(
           {2 * cube_mass * (2 * Pow<2>(cube_side)) / 12,
            2 * cube_mass * (Pow<2>(2 * cube_side) + Pow<2>(cube_side)) / 12,
            2 * cube_mass * (Pow<2>(2 * cube_side) + Pow<2>(cube_side)) / 12})));

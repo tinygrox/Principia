@@ -104,7 +104,7 @@ class KSPResonanceTest : public ::testing::Test {
     joolian_moons_ = {laythe_, vall_, tylo_, bop_, pol_};
 
     for (not_null<MassiveBody const*> const moon : joolian_moons_) {
-      auto const elements = solar_system_.MakeKeplerianElements(
+      auto const elements = SolarSystem<KSP>::MakeKeplerianElements(
           solar_system_.keplerian_initial_state_message(moon->name()).
               elements());
       CHECK(elements.mean_motion) << moon->name();
@@ -213,7 +213,7 @@ class KSPResonanceTest : public ::testing::Test {
       LOG(INFO) << "  " << moon->name();
       if (t1 > ephemeris.t_max() || t2 > ephemeris.t_max()) {
         LOG(INFO) << "    Aperiodic";
-        actual_periods[moon] = Infinity<Time>();
+        actual_periods[moon] = Infinity<Time>;
       } else {
         actual_periods[moon] =
             Bisect(moon_y, t2 - Δt, t2) - Bisect(moon_y, t1 - Δt, t1);
@@ -288,8 +288,8 @@ TEST_F(KSPResonanceTest, MSVC_ONLY_TEST(Stock)) {
   EXPECT_THAT(RelativeError(periods_at_mid_term.at(laythe_),
                             expected_periods_.at(laythe_)),
               IsNear(0.874_⑴));
-  EXPECT_THAT(periods_at_mid_term.at(vall_), Eq(Infinity<Time>()));
-  EXPECT_THAT(periods_at_mid_term.at(tylo_), Eq(Infinity<Time>()));
+  EXPECT_THAT(periods_at_mid_term.at(vall_), Eq(Infinity<Time>));
+  EXPECT_THAT(periods_at_mid_term.at(tylo_), Eq(Infinity<Time>));
   EXPECT_THAT(RelativeError(periods_at_mid_term.at(bop_),
                             expected_periods_.at(bop_)), IsNear(0.38_⑴));
   EXPECT_THAT(RelativeError(periods_at_mid_term.at(pol_),

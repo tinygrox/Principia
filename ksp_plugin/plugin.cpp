@@ -58,8 +58,10 @@ namespace principia {
 namespace ksp_plugin {
 namespace internal_plugin {
 
-using astronomy::KSPStabilizedSystemFingerprint;
-using astronomy::KSPStockSystemFingerprint;
+using astronomy::KSP122;
+using astronomy::KSP191;
+using astronomy::KSPStabilizedSystemFingerprints;
+using astronomy::KSPStockSystemFingerprints;
 using astronomy::ParseTT;
 using astronomy::StabilizeKSP;
 using base::check_not_null;
@@ -105,8 +107,6 @@ using quantities::Force;
 using quantities::Infinity;
 using quantities::Length;
 using quantities::MomentOfInertia;
-using quantities::SIUnit;
-using quantities::si::Kilogram;
 using quantities::si::Milli;
 using quantities::si::Minute;
 using quantities::si::Radian;
@@ -200,25 +200,35 @@ void Plugin::EndInitialization() {
     LOG(INFO) << "System fingerprint is " << std::hex << std::uppercase
               << system_fingerprint;
 
-    if (system_fingerprint == KSPStockSystemFingerprint) {
-      LOG(WARNING) << "This appears to be the dreaded KSP stock system!";
-      StabilizeKSP(solar_system);
-      auto const hierarchical_system = solar_system.MakeHierarchicalSystem();
-      serialization::HierarchicalSystem message;
-      hierarchical_system->WriteToMessage(&message);
-      uint64_t const system_fingerprint =
-          Fingerprint2011(SerializeAsBytes(message).get());
-      LOG(INFO) << "System fingerprint after stabilization is " << std::hex
-                << std::uppercase << system_fingerprint;
-      CHECK_EQ(KSPStabilizedSystemFingerprint, system_fingerprint)
-          << "Attempt at stabilizing the KSP system failed!\n"
-          << gravity_model_.DebugString() << "\n"
-          << initial_state_.DebugString();
-      LOG(INFO) << "This is the stabilized KSP system, all hail retrobop!";
-    } else if (system_fingerprint == KSPStabilizedSystemFingerprint) {
-      LOG(INFO) << "This is the stabilized KSP system, and we didn't have to "
-                << "stabilize it ourselves.  All hail retrobop anyway!";
-    } else {
+    bool is_well_known = false;
+    for (auto const ksp_version : {KSP122, KSP191}) {
+      if (system_fingerprint == KSPStockSystemFingerprints[ksp_version]) {
+        LOG(WARNING) << "This appears to be the dreaded KSP stock system!";
+        StabilizeKSP(solar_system);
+        auto const hierarchical_system = solar_system.MakeHierarchicalSystem();
+        serialization::HierarchicalSystem message;
+        hierarchical_system->WriteToMessage(&message);
+        uint64_t const system_fingerprint =
+            Fingerprint2011(SerializeAsBytes(message).get());
+        LOG(INFO) << "System fingerprint after stabilization is " << std::hex
+                  << std::uppercase << system_fingerprint;
+        CHECK_EQ(KSPStabilizedSystemFingerprints[ksp_version],
+                 system_fingerprint)
+            << "Attempt at stabilizing the KSP system failed!\n"
+            << gravity_model_.DebugString() << "\n"
+            << initial_state_.DebugString();
+        LOG(INFO) << "This is the stabilized KSP system, all hail retrobop!";
+        is_well_known = true;
+        break;
+      } else if (system_fingerprint ==
+                 KSPStabilizedSystemFingerprints[ksp_version]) {
+        LOG(INFO) << "This is the stabilized KSP system, and we didn't have to "
+                  << "stabilize it ourselves.  All hail retrobop anyway!";
+        is_well_known = true;
+        break;
+      }
+    }
+    if (!is_well_known) {
       LOG(WARNING) << "This is an unknown system, we don't know anything about "
                    << "its stability:\n"
                    << gravity_model_.DebugString() << "\n"
@@ -244,9 +254,7 @@ void Plugin::EndInitialization() {
   }
 
   // Establish the parent relationships between the celestials.
-  for (auto const& pair : celestials_) {
-    Index const celestial_index = pair.first;
-    auto const& celestial = pair.second;
+  for (auto const& [celestial_index, celestial] : celestials_) {
     auto const& parent_index = FindOrDie(parents_, celestial_index);
     if (parent_index) {
       not_null<Celestial const*> parent =
@@ -420,14 +428,7 @@ void Plugin::InsertUnloadedPart(
   DegreesOfFreedom<Barycentric> const degrees_of_freedom =
       vessel->parent()->current_degrees_of_freedom(current_time_) + relative;
 
-  Mass const mass = 1 * Kilogram;
-  AddPart(vessel,
-          part_id,
-          name,
-          mass,
-          MakeWaterSphereInertiaTensor(mass),
-          RigidMotion<RigidPart, Barycentric>::MakeNonRotatingMotion(
-              degrees_of_freedom));
+  AddPart(vessel, part_id, name, degrees_of_freedom);
   // NOTE(egg): we do not keep the part; it may disappear just as we load, if
   // it happens to be a part with no physical significance (rb == null).
 }
@@ -437,6 +438,7 @@ void Plugin::InsertOrKeepLoadedPart(
     std::string const& name,
     Mass const& mass,
     InertiaTensor<RigidPart> const& inertia_tensor,
+    bool const is_solid_rocket_motor,
     GUID const& vessel_guid,
     Index const main_body_index,
     DegreesOfFreedom<World> const& main_body_degrees_of_freedom,
@@ -459,8 +461,8 @@ void Plugin::InsertOrKeepLoadedPart(
           main_body_frame.ToThisFrameAtTime(previous_time).orthogonal_map() *
               Δplanetarium_rotation.Inverse() *
               renderer_->WorldToBarycentric(PlanetariumRotation())},
-          (renderer_->BarycentricToWorld(PlanetariumRotation()) *
-                Δplanetarium_rotation)(-angular_velocity_of_world_),
+      (renderer_->BarycentricToWorld(PlanetariumRotation()) *
+          Δplanetarium_rotation)(-angular_velocity_of_world_),
       main_body_degrees_of_freedom.velocity()};
   RigidMotion<World, Barycentric> const world_to_barycentric_motion =
       main_body_frame.FromThisFrameAtTime(previous_time) *
@@ -486,12 +488,14 @@ void Plugin::InsertOrKeepLoadedPart(
   }
   vessel->KeepPart(part_id);
   not_null<Part*> part = vessel->part(part_id);
+  part->make_truthful();
   part->set_mass(mass);
+  part->set_is_solid_rocket_motor(is_solid_rocket_motor);
   part->set_inertia_tensor(inertia_tensor);
 }
 
 void Plugin::ApplyPartIntrinsicForce(PartId const part_id,
-                                     Vector<Force, World> const& force) {
+                                     Vector<Force, World> const& force) const {
   CHECK(!initializing_);
   not_null<Vessel*> const vessel = FindOrDie(part_id_to_vessel_, part_id);
   CHECK(is_loaded(vessel));
@@ -503,7 +507,7 @@ void Plugin::ApplyPartIntrinsicForceAtPosition(
     PartId const part_id,
     Vector<Force, World> const& force,
     Position<World> const& point_of_force_application,
-    Position<World> const& part_position) {
+    Position<World> const& part_position) const {
   CHECK(!initializing_);
   not_null<Vessel*> const vessel = FindOrDie(part_id_to_vessel_, part_id);
   CHECK(is_loaded(vessel));
@@ -516,12 +520,20 @@ void Plugin::ApplyPartIntrinsicForceAtPosition(
 
 void Plugin::ApplyPartIntrinsicTorque(
     PartId const part_id,
-    Bivector<Torque, World> const& torque) {
+    Bivector<Torque, World> const& torque) const {
   CHECK(!initializing_);
   not_null<Vessel*> const vessel = FindOrDie(part_id_to_vessel_, part_id);
   CHECK(is_loaded(vessel));
   vessel->part(part_id)->apply_intrinsic_torque(
       renderer_->WorldToBarycentric(PlanetariumRotation())(torque));
+}
+
+bool Plugin::PartIsTruthful(PartId const part_id) const {
+  auto const it = part_id_to_vessel_.find(part_id);
+  if (it == part_id_to_vessel_.end()) {
+    return false;
+  }
+  return it->second->part(part_id)->truthful();
 }
 
 void Plugin::PrepareToReportCollisions() {
@@ -570,7 +582,7 @@ void Plugin::FreeVesselsAndPartsAndCollectPileUps(Time const& Δt) {
     not_null<Vessel*> const vessel = it->second.get();
     Instant const vessel_time =
         is_loaded(vessel) ? current_time_ - Δt : current_time_;
-    if (kept_vessels_.erase(vessel)) {
+    if (kept_vessels_.erase(vessel) > 0) {
       vessel->PrepareHistory(vessel_time);
       ++it;
     } else {
@@ -644,34 +656,39 @@ void Plugin::FreeVesselsAndPartsAndCollectPileUps(Time const& Δt) {
 
 void Plugin::SetPartApparentRigidMotion(
     PartId const part_id,
-    RigidMotion<RigidPart, World> const& rigid_motion,
-    DegreesOfFreedom<World> const& main_body_degrees_of_freedom) {
-  // Define |ApparentBubble| as the reference frame with the axes of
-  // |Barycentric| centred on the current main body.
-  RigidMotion<World, ApparentBubble> world_to_apparent_bubble{
-      RigidTransformation<World, ApparentBubble>{
-          main_body_degrees_of_freedom.position(),
-          ApparentBubble::origin,
-          OrthogonalMap<Barycentric, ApparentBubble>::Identity() *
-              renderer_->WorldToBarycentric(PlanetariumRotation())},
-      renderer_->BarycentricToWorld(PlanetariumRotation())(
-          -angular_velocity_of_world_),
-      main_body_degrees_of_freedom.velocity()};
+    RigidMotion<RigidPart, ApparentWorld> const& rigid_motion) {
+  // As a reference frame, |Apparent| differs from |World| only by having the
+  // same axes as |Barycentric| and being nonrotating.  However, there is
+  // another semantic distinction: |Apparent...| coordinates are uncorrected
+  // data from the game, given immediately after its physics step; before using
+  // them, we must correct them in accordance with the data computed by the pile
+  // up.  This correction overrides the origin of position and velocity, so we
+  // need not worry about the current definition of
+  // |{World::origin, World::unmoving}| as we do when getting the actual degrees
+  // of freedom (via |Plugin::BarycentricToWorld|).
+  RigidMotion<ApparentWorld, Apparent> world_to_apparent{
+      RigidTransformation<ApparentWorld, Apparent>{
+          ApparentWorld::origin,
+          Apparent::origin,
+          OrthogonalMap<Barycentric, Apparent>::Identity() *
+              renderer_->WorldToBarycentric(PlanetariumRotation()) *
+              OrthogonalMap<ApparentWorld, World>::Identity()},
+      Identity<Barycentric, Apparent>()(angular_velocity_of_world_),
+      Apparent::unmoving};
 
   not_null<Vessel*> vessel = FindOrDie(part_id_to_vessel_, part_id);
   CHECK(is_loaded(vessel));
   not_null<Part*> const part = vessel->part(part_id);
   CHECK(part->is_piled_up());
   part->containing_pile_up()->SetPartApparentRigidMotion(
-      part, world_to_apparent_bubble * rigid_motion);
+      part, world_to_apparent * rigid_motion);
 }
 
-DegreesOfFreedom<World> Plugin::GetPartActualDegreesOfFreedom(
+RigidMotion<RigidPart, World> Plugin::GetPartActualMotion(
     PartId const part_id,
     RigidMotion<Barycentric, World> const& barycentric_to_world) const {
-  return barycentric_to_world(
-             FindOrDie(part_id_to_vessel_,
-                       part_id)->part(part_id)->degrees_of_freedom());
+  return barycentric_to_world *
+         FindOrDie(part_id_to_vessel_, part_id)->part(part_id)->rigid_motion();
 }
 
 DegreesOfFreedom<World> Plugin::CelestialWorldDegreesOfFreedom(
@@ -692,7 +709,6 @@ RigidMotion<Barycentric, World> Plugin::BarycentricToWorld(
 
   auto const barycentric_to_main_body_motion =
       main_body_frame.ToThisFrameAtTime(current_time_);
-  // In coordinates, this rotation is the identity.
   auto const barycentric_to_main_body_rotation =
       barycentric_to_main_body_motion.rigid_transformation().linear_map();
   auto const reference_part_degrees_of_freedom =
@@ -988,7 +1004,7 @@ void Plugin::ComputeAndRenderNodes(
   // irrelevant.
   Length const threshold =
       cast_plotting_frame == nullptr
-          ? Infinity<Length>()
+          ? Infinity<Length>
           : EquatorRelevanceThreshold(
                 *dynamic_cast_not_null<RotatingBody<Barycentric> const*>(
                     cast_plotting_frame->centre()));
@@ -1268,14 +1284,10 @@ void Plugin::WriteToMessage(
   CHECK(!initializing_);
   ephemeris_->Prolong(current_time_);
   std::map<not_null<Celestial const*>, Index const> celestial_to_index;
-  for (auto const& pair : celestials_) {
-    Index const index = pair.first;
-    auto const& owned_celestial = pair.second;
+  for (auto const& [index, owned_celestial] : celestials_) {
     celestial_to_index.emplace(owned_celestial.get(), index);
   }
-  for (auto const& pair : celestials_) {
-    Index const index = pair.first;
-    auto const& owned_celestial = pair.second.get();
+  for (auto const& [index, owned_celestial] : celestials_) {
     auto* const celestial_message = message->add_celestial();
     celestial_message->set_index(index);
     if (owned_celestial->has_parent()) {
@@ -1310,9 +1322,7 @@ void Plugin::WriteToMessage(
     vessel_message->set_loaded(Contains(loaded_vessels_, vessel.get()));
     vessel_message->set_kept(Contains(kept_vessels_, vessel.get()));
   }
-  for (auto const& pair : part_id_to_vessel_) {
-    PartId const part_id = pair.first;
-    not_null<Vessel*> const vessel = pair.second;
+  for (auto const& [part_id, vessel] : part_id_to_vessel_) {
     (*message->mutable_part_id_to_vessel())[part_id] = vessel_to_guid[vessel];
   }
   for (auto const& [guid, parameters] :
@@ -1394,9 +1404,7 @@ not_null<std::unique_ptr<Plugin>> Plugin::ReadFromMessage(
     CHECK(inserted);
   }
 
-  for (auto const& pair : message.part_id_to_vessel()) {
-    PartId const part_id = pair.first;
-    GUID const guid = pair.second;
+  for (auto const& [part_id, guid] : message.part_id_to_vessel()) {
     auto const& vessel = FindOrDie(plugin->vessels_, guid);
     plugin->part_id_to_vessel_.emplace(part_id, vessel.get());
   }
@@ -1468,11 +1476,11 @@ not_null<std::unique_ptr<Plugin>> Plugin::ReadFromMessage(
 }
 
 Plugin::Plugin(
-    Ephemeris<Barycentric>::FixedStepParameters const& history_parameters,
-    Ephemeris<Barycentric>::AdaptiveStepParameters const&
+    Ephemeris<Barycentric>::FixedStepParameters history_parameters,
+    Ephemeris<Barycentric>::AdaptiveStepParameters
         psychohistory_parameters)
-    : history_parameters_(history_parameters),
-      psychohistory_parameters_(psychohistory_parameters),
+    : history_parameters_(std::move(history_parameters)),
+      psychohistory_parameters_(std::move(psychohistory_parameters)),
       vessel_thread_pool_(
           /*pool_size=*/2 * std::thread::hardware_concurrency()) {}
 
@@ -1556,12 +1564,11 @@ void Plugin::ReadCelestialsFromMessages(
   }
 }
 
+template<typename... Args>
 void Plugin::AddPart(not_null<Vessel*> const vessel,
                      PartId const part_id,
                      std::string const& name,
-                     Mass const& mass,
-                     InertiaTensor<RigidPart> const& inertia_tensor,
-                     RigidMotion<RigidPart, Barycentric> const& rigid_motion) {
+                     Args... args) {
   auto const [it, inserted] = part_id_to_vessel_.emplace(part_id, vessel);
   CHECK(inserted) << NAMED(part_id);
   auto deletion_callback = [it = it, &map = part_id_to_vessel_] {
@@ -1569,9 +1576,7 @@ void Plugin::AddPart(not_null<Vessel*> const vessel,
   };
   auto part = make_not_null_unique<Part>(part_id,
                                          name,
-                                         mass,
-                                         inertia_tensor,
-                                         rigid_motion,
+                                         std::forward<Args>(args)...,
                                          std::move(deletion_callback));
   vessel->AddPart(std::move(part));
 }

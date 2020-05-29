@@ -36,6 +36,7 @@ This project depends upon:
   benchmark library;
 - our [fork](https://github.com/mockingbirdnest/gipfeli) of the Google gipfeli library;
 - our [fork](https://github.com/mockingbirdnest/abseil-cpp) of the Google Abseil C++ library;
+- our [fork]() of the LLNL zfp library;
 - parts of the Chromium codebase (for stack tracing support in glog on Windows),
   *modified according to the instructions below*.
 
@@ -59,6 +60,7 @@ git clone "https://github.com/mockingbirdnest/protobuf.git"
 git clone "https://github.com/mockingbirdnest/benchmark.git"
 git clone "https://github.com/mockingbirdnest/gipfeli.git"
 git clone "https://github.com/mockingbirdnest/abseil-cpp.git"
+git clone "https://github.com/mockingbirdnest/zfp.git"
 git clone "https://chromium.googlesource.com/chromium/src.git" chromium -n --depth 1 -b "40.0.2193.1"
 $GitPromptSettings.RepositoriesInWhichToDisableFileStatus += join-path  (gi -path .).FullName chromium
 cd chromium
@@ -72,7 +74,31 @@ cd ..
 ```
 ### Building
 
-In `<root>`, run the following command.
+In `<root>`, run the following command:
 ```powershell
 .\Principia\rebuild_all_solutions.ps1
 ```
+
+# Instructions for building Principia on Linux and macOS
+
+*Note that the released binaries for Linux and macOS are built using [Azure pipelines](https://dev.azure.com/mockingbirdnest/Principia/_build).  The instructions below are best effort.*
+
+Before starting, make sure the following are installed on your machine:
+* Build prerequisites: `build-essential`, `clang`, `libc++-dev`, `libc++abi-dev`, `monodevelop`, `subversion`, and `git`;
+* Runtime dependencies: `libc++1`.
+
+## Installing the dependencies
+
+In `<root>/Principia`, run the following command:
+```bash
+./install_deps.sh
+```
+This will install and compile all the third-party components that Principia uses.  Don't proceed with the next step unless this step has completed without errors.
+
+## Building Principia
+
+In `<root>/Principia`, run the following command:
+```bash
+./principia_make.sh
+```
+If some of the unit tests fail, you may or may not be able to run the resulting version of Principia.

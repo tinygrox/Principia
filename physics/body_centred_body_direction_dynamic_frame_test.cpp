@@ -31,17 +31,16 @@ namespace internal_body_centred_body_direction_dynamic_frame {
 
 using astronomy::ICRS;
 using base::check_not_null;
+using geometry::Arbitrary;
 using geometry::Barycentre;
 using geometry::Bivector;
 using geometry::Frame;
 using geometry::Handedness;
 using geometry::Instant;
-using geometry::NonInertial;
 using geometry::Rotation;
 using geometry::Vector;
 using integrators::SymplecticRungeKuttaNyströmIntegrator;
 using integrators::methods::McLachlanAtela1992Order4Optimal;
-using quantities::SIUnit;
 using quantities::Sqrt;
 using quantities::Time;
 using quantities::si::Kilo;
@@ -72,11 +71,11 @@ class BodyCentredBodyDirectionDynamicFrameTest : public ::testing::Test {
  protected:
   // The rotating frame centred on the big body and directed to the small one.
   using BigSmallFrame = Frame<serialization::Frame::TestTag,
-                              NonInertial,
+                              Arbitrary,
                               Handedness::Right,
                               serialization::Frame::TEST>;
   using MockFrame = Frame<serialization::Frame::TestTag,
-                          NonInertial,
+                          Arbitrary,
                           Handedness::Right,
                           serialization::Frame::TEST1>;
 

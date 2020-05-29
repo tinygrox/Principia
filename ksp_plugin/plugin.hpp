@@ -207,6 +207,7 @@ class Plugin {
       std::string const& name,
       Mass const& mass,
       InertiaTensor<RigidPart> const& inertia_tensor,
+      bool is_solid_rocket_motor,
       GUID const& vessel_guid,
       Index main_body_index,
       DegreesOfFreedom<World> const& main_body_degrees_of_freedom,
@@ -217,15 +218,17 @@ class Plugin {
   // relevant part, which must be in a loaded vessel.
   virtual void ApplyPartIntrinsicForce(
       PartId part_id,
-      Vector<Force, World> const& force);
+      Vector<Force, World> const& force) const;
   virtual void ApplyPartIntrinsicForceAtPosition(
       PartId part_id,
       Vector<Force, World> const& force,
       Position<World> const& point_of_force_application,
-      Position<World> const& part_position);
+      Position<World> const& part_position) const;
   virtual void ApplyPartIntrinsicTorque(
       PartId part_id,
-      Bivector<Torque, World> const& torque);
+      Bivector<Torque, World> const& torque) const;
+
+  virtual bool PartIsTruthful(PartId part_id) const;
 
   // Calls |MakeSingleton| for all parts in loaded vessels, enabling the use of
   // union-find for pile up construction.  This must be called after the calls
@@ -251,13 +254,12 @@ class Plugin {
   // part.  This part must be in a loaded vessel.
   virtual void SetPartApparentRigidMotion(
       PartId part_id,
-      RigidMotion<RigidPart, World> const& rigid_motion,
-      DegreesOfFreedom<World> const& main_body_degrees_of_freedom);
+      RigidMotion<RigidPart, ApparentWorld> const& rigid_motion);
 
-  // Returns the degrees of freedom of the given part in |World|, assuming that
+  // Returns the motion of the given part in |World|, assuming that
   // the origin of |World| is fixed at the centre of mass of the
   // |part_at_origin|.
-  virtual DegreesOfFreedom<World> GetPartActualDegreesOfFreedom(
+  virtual RigidMotion<RigidPart, World> GetPartActualMotion(
       PartId part_id,
       RigidMotion<Barycentric, World> const& barycentric_to_world) const;
 
@@ -265,7 +267,7 @@ class Plugin {
   // |Index|, identifying the origin of |World| with the centre of mass of the
   // |Part| with the given |PartId|.
   virtual DegreesOfFreedom<World> CelestialWorldDegreesOfFreedom(
-      Index const index,
+      Index index,
       RigidMotion<Barycentric, World> const& barycentric_to_world,
       Instant const& time) const;
 
@@ -446,8 +448,8 @@ class Plugin {
       Ephemeris<Barycentric>::NewtonianMotionEquation;
 
   // This constructor should only be used during deserialization.
-  Plugin(Ephemeris<Barycentric>::FixedStepParameters const& history_parameters,
-         Ephemeris<Barycentric>::AdaptiveStepParameters const&
+  Plugin(Ephemeris<Barycentric>::FixedStepParameters history_parameters,
+         Ephemeris<Barycentric>::AdaptiveStepParameters
              psychohistory_parameters);
 
   void InitializeIndices(
@@ -472,14 +474,13 @@ class Plugin {
       IndexToOwnedCelestial& celestials,
       std::map<std::string, Index>& name_to_index);
 
-  // Adds a part to a vessel, recording it in the appropriate map and setting up
-  // a deletion callback.
+  // Constructs a part using the constructor arguments, and add it to a vessel,
+  // recording it in the appropriate map and setting up a deletion callback.
+  template<typename... Args>
   void AddPart(not_null<Vessel*> vessel,
                PartId part_id,
                std::string const& name,
-               Mass const& mass,
-               InertiaTensor<RigidPart> const& inertia_tensor,
-               RigidMotion<RigidPart, Barycentric> const& rigid_motion);
+               Args... args);
 
   // Whether |loaded_vessels_| contains |vessel|.
   bool is_loaded(not_null<Vessel*> vessel) const;

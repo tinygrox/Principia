@@ -24,6 +24,7 @@
 #include "base/base64.hpp"
 #include "base/encoder.hpp"
 #include "base/fingerprint2011.hpp"
+#include "base/flags.hpp"
 #include "base/hexadecimal.hpp"
 #include "base/macros.hpp"
 #include "base/not_null.hpp"
@@ -66,17 +67,18 @@ using base::Base64Encoder;
 using base::check_not_null;
 using base::Encoder;
 using base::Fingerprint2011;
+using base::Flags;
 using base::HexadecimalEncoder;
 using base::make_not_null_unique;
 using base::PullSerializer;
 using base::PushDeserializer;
 using base::SerializeAsBytes;
 using base::UniqueArray;
+using geometry::Arbitrary;
 using geometry::Displacement;
 using geometry::Frame;
 using geometry::Handedness;
 using geometry::InertiaTensor;
-using geometry::NonInertial;
 using geometry::OrthogonalMap;
 using geometry::Quaternion;
 using geometry::R3x3Matrix;
@@ -112,7 +114,6 @@ using quantities::MomentOfInertia;
 using quantities::ParseQuantity;
 using quantities::Pow;
 using quantities::Speed;
-using quantities::SIUnit;
 using quantities::Time;
 using quantities::astronomy::AstronomicalUnit;
 using quantities::si::Day;
@@ -123,6 +124,7 @@ using quantities::si::Second;
 using quantities::si::Tonne;
 using ::google::protobuf::Arena;
 using ::google::protobuf::ArenaOptions;
+namespace si = quantities::si;
 
 namespace {
 
@@ -171,12 +173,13 @@ Ephemeris<Barycentric>::FixedStepParameters MakeFixedStepParameters(
 }
 
 serialization::OblateBody::Geopotential MakeGeopotential(
-    BodyGeopotentialElement const* const geopotential,
-    int const geopotential_size) {
+    BodyGeopotentialElement const* const* const geopotential) {
   // Make sure that we generate at most one row per degree.
   std::map<int, serialization::OblateBody::Geopotential::GeopotentialRow> rows;
-  for (int i = 0; i < geopotential_size; ++i) {
-    BodyGeopotentialElement const& element = geopotential[i];
+  for (BodyGeopotentialElement const* const* e = geopotential;
+       *e != nullptr;
+       ++e) {
+    BodyGeopotentialElement const& element = **e;
     serialization::OblateBody::Geopotential::GeopotentialRow::GeopotentialColumn
         column;
     int const degree = std::stoi(element.degree);
@@ -264,10 +267,9 @@ serialization::GravityModel::Body MakeGravityModel(
   if (body_parameters.j2 != nullptr) {
     gravity_model.set_j2(ParseQuantity<double>(body_parameters.j2));
   }
-  if (body_parameters.geopotential_size > 0) {
+  if (body_parameters.geopotential != nullptr) {
     *gravity_model.mutable_geopotential() =
-        MakeGeopotential(body_parameters.geopotential,
-                         body_parameters.geopotential_size);
+        MakeGeopotential(body_parameters.geopotential);
   }
   LOG(INFO) << "Fingerprint " << std::setw(16) << std::hex << std::uppercase
             << Fingerprint2011(SerializeAsBytes(gravity_model).get())
@@ -415,6 +417,12 @@ QP __cdecl principia__CelestialWorldDegreesOfFreedom(Plugin const* const plugin,
           FromGameTime(*plugin, time))));
 }
 
+void __cdecl principia__ClearFlags() {
+  journal::Method<journal::ClearFlags> m;
+  Flags::Clear();
+  return m.Return();
+}
+
 void __cdecl principia__ClearWorldRotationalReferenceFrame(
     Plugin* const plugin) {
   journal::Method<journal::ClearWorldRotationalReferenceFrame> m({plugin});
@@ -427,6 +435,15 @@ double __cdecl principia__CurrentTime(Plugin const* const plugin) {
   journal::Method<journal::CurrentTime> m({plugin});
   CHECK_NOTNULL(plugin);
   return m.Return(ToGameTime(*plugin, plugin->CurrentTime()));
+}
+
+void __cdecl principia__DeleteInterchange(void const** const native_pointer) {
+  journal::Method<journal::DeleteInterchange> m({native_pointer},
+                                                {native_pointer});
+  CHECK_NOTNULL(native_pointer);
+  ::operator delete(const_cast<void*>(*native_pointer));
+  *native_pointer = nullptr;
+  return m.Return();
 }
 
 // Deletes and nulls |*plugin|.
@@ -470,13 +487,11 @@ void __cdecl principia__DeleteU16String(char16_t const** const native_string) {
 // this last call returns, |*plugin| is not null and may be used by the caller.
 void __cdecl principia__DeserializePlugin(
     char const* const serialization,
-    int const serialization_size,
     PushDeserializer** const deserializer,
     Plugin const** const plugin,
     char const* const compressor,
     char const* const encoder) {
   journal::Method<journal::DeserializePlugin> m({serialization,
-                                                 serialization_size,
                                                  deserializer,
                                                  plugin,
                                                  compressor,
@@ -493,6 +508,7 @@ void __cdecl principia__DeserializePlugin(
     *deserializer = new PushDeserializer(chunk_size,
                                          number_of_chunks,
                                          NewCompressor(compressor));
+    CHECK_NOTNULL(arena);
     not_null<serialization::Plugin*> const message =
         Arena::CreateMessage<serialization::Plugin>(arena);
     (*deserializer)->Start(
@@ -504,7 +520,8 @@ void __cdecl principia__DeserializePlugin(
   }
 
   // Decode the representation.
-  auto bytes = NewEncoder(encoder)->Decode({serialization, serialization_size});
+  auto bytes = NewEncoder(encoder)->Decode({serialization,
+                                            std::strlen(serialization)});
   auto const bytes_size = bytes.size;
   (*deserializer)->Push(std::move(bytes));
 
@@ -657,8 +674,8 @@ void __cdecl principia__InitGoogleLogging() {
 
 void __cdecl principia__InitializeEphemerisParameters(
     Plugin* const plugin,
-    ConfigurationAccuracyParameters const accuracy_parameters,
-    ConfigurationFixedStepParameters const fixed_step_parameters) {
+    ConfigurationAccuracyParameters const& accuracy_parameters,
+    ConfigurationFixedStepParameters const& fixed_step_parameters) {
   journal::Method<journal::InitializeEphemerisParameters> m(
       {plugin, accuracy_parameters, fixed_step_parameters});
   CHECK_NOTNULL(plugin);
@@ -670,7 +687,7 @@ void __cdecl principia__InitializeEphemerisParameters(
 
 void __cdecl principia__InitializeHistoryParameters(
     Plugin* const plugin,
-    ConfigurationFixedStepParameters const parameters) {
+    ConfigurationFixedStepParameters const& parameters) {
   journal::Method<journal::InitializeHistoryParameters> m(
       {plugin, parameters});
   CHECK_NOTNULL(plugin);
@@ -680,7 +697,7 @@ void __cdecl principia__InitializeHistoryParameters(
 
 void __cdecl principia__InitializePsychohistoryParameters(
     Plugin* const plugin,
-    ConfigurationAdaptiveStepParameters const parameters) {
+    ConfigurationAdaptiveStepParameters const& parameters) {
   journal::Method<journal::InitializePsychohistoryParameters> m(
       {plugin, parameters});
   CHECK_NOTNULL(plugin);
@@ -796,6 +813,7 @@ void __cdecl principia__InsertOrKeepLoadedPart(
     double const mass_in_tonnes,
     XYZ const moments_of_inertia_in_tonnes,
     WXYZ const principal_axes_rotation,
+    bool const is_solid_rocket_motor,
     char const* const vessel_guid,
     int const main_body_index,
     QP const main_body_world_degrees_of_freedom,
@@ -810,6 +828,7 @@ void __cdecl principia__InsertOrKeepLoadedPart(
        mass_in_tonnes,
        moments_of_inertia_in_tonnes,
        principal_axes_rotation,
+       is_solid_rocket_motor,
        vessel_guid,
        main_body_index,
        main_body_world_degrees_of_freedom,
@@ -822,13 +841,13 @@ void __cdecl principia__InsertOrKeepLoadedPart(
   // We build the inertia tensor in the principal axes and then transform it to
   // RigidPart.
   using PartPrincipalAxes = Frame<serialization::Frame::PhysicsTag,
-                                  NonInertial,
+                                  Arbitrary,
                                   Handedness::Left,
                                   serialization::Frame::PRINCIPAL_AXES>;
 
   static constexpr MomentOfInertia zero;
   static constexpr double to_si_unit =
-      Tonne * Pow<2>(Metre) / SIUnit<MomentOfInertia>();
+      Tonne * Pow<2>(Metre) / si::Unit<MomentOfInertia>;
 
   auto const moments_of_inertia = FromXYZ<R3Element<MomentOfInertia>>(
       {moments_of_inertia_in_tonnes.x * to_si_unit,
@@ -852,6 +871,7 @@ void __cdecl principia__InsertOrKeepLoadedPart(
       name,
       mass_in_tonnes * Tonne,
       inertia_tensor_in_rigid_part,
+      is_solid_rocket_motor,
       vessel_guid,
       main_body_index,
       FromQP<DegreesOfFreedom<World>>(main_body_world_degrees_of_freedom),
@@ -1033,6 +1053,13 @@ void __cdecl principia__SetBufferDuration(int const seconds) {
 void __cdecl principia__SetBufferedLogging(int const max_severity) {
   journal::Method<journal::SetBufferedLogging> m({max_severity});
   FLAGS_logbuflevel = max_severity;
+  return m.Return();
+}
+
+void __cdecl principia__SetFlag(char const* const name,
+                                char const* const value) {
+  journal::Method<journal::SetFlag> m({name, value});
+  Flags::Set(name, value);
   return m.Return();
 }
 

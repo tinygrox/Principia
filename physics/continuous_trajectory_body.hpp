@@ -28,9 +28,9 @@ using numerics::EstrinEvaluator;
 using numerics::ULPDistance;
 using numerics::ЧебышёвSeries;
 using quantities::DebugString;
-using quantities::SIUnit;
 using quantities::si::Metre;
 using quantities::si::Second;
+namespace si = quantities::si;
 
 int const max_degree = 17;
 int const min_degree = 3;
@@ -100,8 +100,8 @@ Status ContinuousTrajectory<Frame>::Append(
     Instant const t0;
     CHECK_GE(1,
              ULPDistance((last_points_.back().first + step_ - t0) /
-                             SIUnit<Time>(),
-                         (time - t0) / SIUnit<Time>()))
+                             si::Unit<Time>,
+                         (time - t0) / si::Unit<Time>))
         << "Append at times that are not equally spaced, expected " << step_
         << ", found " << last_points_.back().first << " and " << time;
   } else {
@@ -109,6 +109,7 @@ Status ContinuousTrajectory<Frame>::Append(
   }
 
   Status status;
+  CHECK_LE(last_points_.size(), divisions);
   if (last_points_.size() == divisions) {
     // These vectors are thread-local to avoid deallocation/reallocation each
     // time we go through this code path.
@@ -293,7 +294,7 @@ ContinuousTrajectory<Frame>::ReadFromMessage(
   continuous_trajectory->checkpointer_.ReadFromMessage(checkpoint_time,
                                                        message);
 
-    return continuous_trajectory;
+  return continuous_trajectory;
 }
 
 template<typename Frame>
